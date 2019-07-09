@@ -18,17 +18,21 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
+const (
+	envAutomountServiceAccountToken = "PLUGIN_AUTOMOUNTSERVICEACCOUNTTOKEN"
+)
+
 // TODO(bradrydzewski) enable container resource limits.
 
 // helper function converts environment variable
-// string data to kubernetes variables.
+// string data to kubernetes variables. Special care is to be put
+// on kubernetes-specific envvars, designed to tune the pod.
 func toEnv(spec *engine.Spec, step *engine.Step) []v1.EnvVar {
 	var to []v1.EnvVar
 	for k, v := range step.Envs {
-		to = append(to, v1.EnvVar{
-			Name:  k,
-			Value: v,
-		})
+		if k != envAutomountServiceAccountToken {
+			to = append(to, v1.EnvVar{Name: k, Value: v})
+		}
 	}
 	to = append(to, v1.EnvVar{
 		Name: "KUBERNETES_NODE",
@@ -251,6 +255,14 @@ func toPod(spec *engine.Spec, step *engine.Step) *v1.Pod {
 		}}
 	}
 
+	automountServiceAccountToken := false
+	for k, v := range step.Envs {
+		if k == envAutomountServiceAccountToken {
+			automountServiceAccountToken, _ = strconv.ParseBool(v)
+			break
+		}
+	}
+
 	return &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      step.Metadata.UID,
@@ -258,7 +270,7 @@ func toPod(spec *engine.Spec, step *engine.Step) *v1.Pod {
 			Labels:    step.Metadata.Labels,
 		},
 		Spec: v1.PodSpec{
-			AutomountServiceAccountToken: boolptr(false),
+			AutomountServiceAccountToken: &automountServiceAccountToken,
 			RestartPolicy:                v1.RestartPolicyNever,
 			Containers: []v1.Container{{
 				Name:            step.Metadata.UID,
@@ -316,10 +328,6 @@ func toService(spec *engine.Spec, step *engine.Step) *v1.Service {
 
 func toDNS(i string) string {
 	return strings.Replace(i, "_", "-", -1)
-}
-
-func boolptr(v bool) *bool {
-	return &v
 }
 
 func stringptr(v string) *string {
