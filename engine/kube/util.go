@@ -5,10 +5,11 @@
 package kube
 
 import (
+	"fmt"
 	"path"
 	"path/filepath"
-	"strings"
 	"strconv"
+	"strings"
 
 	"github.com/drone/drone-runtime/engine"
 
@@ -145,15 +146,8 @@ func toVolumes(spec *engine.Spec, step *engine.Step) []v1.Volume {
 		if !ok {
 			continue
 		}
-		volume := v1.Volume{Name: vol.Metadata.UID}
-		source := v1.HostPathDirectoryOrCreate
-		if vol.HostPath != nil {
-			volume.HostPath = &v1.HostPathVolumeSource{
-				Path: vol.HostPath.Path,
-				Type: &source,
-			}
-		}
-		if vol.EmptyDir != nil {
+		switch {
+		case vol.EmptyDir != nil, vol.HostPath != nil:
 			// volume.EmptyDir = &v1.EmptyDirVolumeSource{}
 
 			// NOTE the empty_dir cannot be shared across multiple
@@ -161,14 +155,55 @@ func toVolumes(spec *engine.Spec, step *engine.Step) []v1.Volume {
 			// directory on the host machine that can be shared
 			// between pods. This means we are responsible for deleting
 			// these directories.
-			volume.HostPath = &v1.HostPathVolumeSource{
-				Path: filepath.Join("/tmp", "drone", spec.Metadata.Namespace, vol.Metadata.UID),
-				Type: &source,
-			}
+			to = append(to, toHostPathVolume(spec, vol))
+		case vol.Secret != nil:
+			to = append(to, toSecretVolumes(spec, vol)...)
 		}
-		to = append(to, volume)
 	}
 	return to
+}
+
+func toHostPathVolume(spec *engine.Spec, vol *engine.Volume) (hostPathVolume v1.Volume) {
+	var path string
+	if vol.EmptyDir != nil {
+		path = filepath.Join("/tmp", "drone", spec.Metadata.Namespace, vol.Metadata.UID)
+	} else {
+		path = vol.HostPath.Path
+	}
+	srcType := v1.HostPathDirectoryOrCreate
+	hostPathVolume.Name = vol.Metadata.UID
+	hostPathVolume.HostPath = &v1.HostPathVolumeSource{
+		Path: path,
+		Type: &srcType,
+	}
+	return
+}
+
+// secret volumes must be created one per secret, due to the current
+// structure of secrets in spec
+func toSecretVolumes(spec *engine.Spec, vol *engine.Volume) (volumeList []v1.Volume) {
+	for _, item := range vol.Secret.Items {
+		secretName := fmt.Sprintf("%s-%s-%s", vol.Metadata.Name, vol.Secret.Name, item.Key)
+		sec, ok := engine.LookupSecret(spec, secretName)
+		if !ok {
+			continue
+		}
+		secretVolume := v1.Volume{
+			Name: fmt.Sprintf("%s-%s", vol.Metadata.UID, item.Key),
+		}
+		secretVolume.Secret = &v1.SecretVolumeSource{
+			SecretName: sec.Metadata.UID,
+			Items: []v1.KeyToPath{
+				v1.KeyToPath{
+					Key:  sec.Metadata.UID,
+					Path: item.Path,
+					Mode: item.Mode,
+				},
+			},
+		}
+		volumeList = append(volumeList, secretVolume)
+	}
+	return volumeList
 }
 
 func toVolumeMounts(spec *engine.Spec, step *engine.Step) []v1.VolumeMount {
@@ -178,10 +213,22 @@ func toVolumeMounts(spec *engine.Spec, step *engine.Step) []v1.VolumeMount {
 		if !ok {
 			continue
 		}
-		to = append(to, v1.VolumeMount{
-			Name:      vol.Metadata.UID,
-			MountPath: mount.Path,
-		})
+		switch {
+		case vol.Secret != nil:
+			for _, item := range vol.Secret.Items {
+				to = append(to, v1.VolumeMount{
+					Name:      fmt.Sprintf("%s-%s", vol.Metadata.UID, item.Key),
+					MountPath: fmt.Sprintf("%s/%s", mount.Path, item.Path),
+					SubPath:   item.Path,
+				})
+			}
+		default:
+			to = append(to, v1.VolumeMount{
+				Name:      vol.Metadata.UID,
+				MountPath: mount.Path,
+			})
+		}
+
 	}
 	return to
 }
