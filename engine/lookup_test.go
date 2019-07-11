@@ -47,7 +47,7 @@ func TestLookupSecret(t *testing.T) {
 	spec := &Spec{
 		Secrets: []*Secret{want},
 	}
-	got, ok := LookupSecret(spec, &SecretVar{Name: "foo"})
+	got, ok := LookupSecret(spec, "foo")
 	if !ok {
 		t.Errorf("Expect secret found")
 	}
@@ -61,7 +61,7 @@ func TestLookupSecret_NotFound(t *testing.T) {
 	spec := &Spec{
 		Secrets: []*Secret{want},
 	}
-	got, ok := LookupSecret(spec, &SecretVar{Name: "bar"})
+	got, ok := LookupSecret(spec, "bar")
 	if ok {
 		t.Errorf("Expect volume not found")
 	}

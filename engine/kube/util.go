@@ -43,7 +43,7 @@ func toEnv(spec *engine.Spec, step *engine.Step) []v1.EnvVar {
 		},
 	})
 	for _, secret := range step.Secrets {
-		sec, ok := engine.LookupSecret(spec, secret)
+		sec, ok := engine.LookupSecret(spec, secret.Name)
 		if !ok {
 			continue
 		}

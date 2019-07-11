@@ -44,7 +44,7 @@ func toConfig(spec *engine.Spec, step *engine.Step) *container.Config {
 		config.Env = toEnv(step.Envs)
 	}
 	for _, sec := range step.Secrets {
-		secret, ok := engine.LookupSecret(spec, sec)
+		secret, ok := engine.LookupSecret(spec, sec.Name)
 		if ok {
 			config.Env = append(config.Env, sec.Env+"="+secret.Data)
 		}
